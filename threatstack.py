@@ -338,6 +338,18 @@ def queryOneRow(query):
     result=cursor.fetchone()
     return(result)
 
+def queryOneRowVar(query, var):
+    t=(var,)
+    cursor=db.cursor()
+    cursor.execute(query,t)
+    result=cursor.fetchone()
+    return(result)
+
+def queryAllRows(query):
+    cursor=db.cursor()
+    cursor.execute(query)
+    result=cursor.fetchall()
+    return(result)
     
 if path.exists(dbFile):
     print("DB File Found")
@@ -411,3 +423,30 @@ if args.report:
 
     #Create the table
     table=PrettyTable(["", lastTimestamp, timestamp])
+
+    #Get current list of high vulns and then yesterdays
+    query="SELECT COUNT(DISTINCT(cve)) FROM vulns WHERE reportID=? and sev='high'"
+    lastHighCVECount=queryOneRowVar(query, lastReportID)[0]
+
+    query="SELECT COUNT(DISTINCT(cve)) FROM vulns WHERE reportID=? and sev='high'"
+    highCVECount=queryOneRowVar(query, lastReportID)[0]
+
+    #Get current list of medium vulns and then yesterdays
+    query="SELECT COUNT(DISTINCT(cve)) FROM vulns WHERE reportID=? and sev='medium'"
+    lastMediumCVECount=queryOneRowVar(query, lastReportID)[0]
+
+    query="SELECT COUNT(DISTINCT(cve)) FROM vulns WHERE reportID=? and sev='medium'"
+    mediumCVECount=queryOneRowVar(query, lastReportID)[0]
+
+    #Get current list of low vulns and then yesterdays
+    query="SELECT COUNT(DISTINCT(cve)) FROM vulns WHERE reportID=? and sev='low'"
+    lastLowCVECount=queryOneRowVar(query, lastReportID)[0]
+
+    query="SELECT COUNT(DISTINCT(cve)) FROM vulns WHERE reportID=? and sev='low'"
+    lowCVECount=queryOneRowVar(query, lastReportID)[0]
+
+    table.add_row(["High CVEs", lastHighCVECount, highCVECount])
+    table.add_row(["Medium CVEs", lastMediumCVECount, mediumCVECount])
+    table.add_row(["Low CVEs", lastLowCVECount, lowCVECount])
+
+    print(table)
