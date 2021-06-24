@@ -1,0 +1,6 @@
+[default]
+tsHost = api.threatstack.com
+tsUserID = 
+tsAPIKey = 
+tsOrgID = 
+dbFile = threatstack.sql3
