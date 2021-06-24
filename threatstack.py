@@ -4,6 +4,7 @@ from mohawk import Sender
 import requests
 from os import path
 from os import mkdir
+import os 
 import sys
 import time
 import configparser
@@ -354,18 +355,6 @@ def makeFilename(title):
     title=title.replace("/","")
     #return the title with .html on the end so we don't get alerts
     title=args.outdir + "/" + title + ".png"
-    graphNames.append(title)
-    return title
-
-
-def makeFilename(title):
-    #first remove spaces
-    title=title.replace(" ","-")
-    #next remove slashes
-    title=title.replace("/","")
-    #return the title with .html on the end so we don't get alerts
-    title=args.outdir + "/" + title + ".png"
-    graphNames.append(title)
     return title
 
 def queryOneRow(query):
@@ -514,6 +503,8 @@ if args.graphs:
         sevCount.append(row[1])
 
     createPieGraph(sevs, sevCount, "Severity", "CVEs", "Machines with CVEs of type", timestamp)
+    graphNames.append(makeFilename("Machines with CVEs of type"))
+    print(graphNames)
 
 if args.slack:
     from slack_sdk import WebClient
@@ -532,8 +523,8 @@ if args.slack:
         print("Error: You must supply --channel with --slack")
         quit()
 
-    if not os.path.exists(args.outdir):
-        os.makedir(args.outdir)
+    if not path.exists(args.outdir):
+        mkdir(args.outdir)
 
     channelID=args.channel
 
@@ -547,6 +538,8 @@ if args.slack:
         assert e.response["error"]  
         print(f"Error: {e.response['error']}")
 
+    if not args.graphs:
+        sys.exit()
     for graphName in graphNames:
         try:
             response = client.files_upload(channels=channelID, file=graphName)
