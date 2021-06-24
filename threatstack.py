@@ -3,6 +3,7 @@
 from mohawk import Sender
 import requests
 from os import path
+from os import mkdir
 import sys
 import time
 import configparser
@@ -13,6 +14,7 @@ import argparse
 from prettytable import PrettyTable
 import plotly
 import plotly.graph_objs as go
+
 
 
 parser = argparse.ArgumentParser(description='Threatstack Daily Report Generator')
@@ -332,6 +334,40 @@ def getVulns(credentials, tsHost, tsOrgID, agentId, instanceId, hostname, tags, 
         print("Unexpected error:", sys.exc_info()[0])
         raise
 
+def createGraph(yData, xData, yTitle, xTitle, title):
+    plotly.io.write_image({
+        "data":[ go.Bar( x=xData, y=yData) ],
+        "layout": go.Layout(title=title,
+            xaxis=dict(title=xTitle,type='category'),
+            yaxis=dict(title=yTitle), )
+        },makeFilename(title))
+
+
+def createPieGraph(xData, yData, xTitle, yTitle, title, timestamp): 
+    plotly.io.write_image({
+        "data":[ go.Pie( labels=xData, values=yData, title=title + " " + timestamp]},makeFilename(title))
+
+def makeFilename(title):
+    #first remove spaces
+    title=title.replace(" ","-")
+    #next remove slashes
+    title=title.replace("/","")
+    #return the title with .html on the end so we don't get alerts
+    title=args.outdir + "/" + title + ".png"
+    graphNames.append(title)
+    return title
+
+
+def makeFilename(title):
+    #first remove spaces
+    title=title.replace(" ","-")
+    #next remove slashes
+    title=title.replace("/","")
+    #return the title with .html on the end so we don't get alerts
+    title=args.outdir + "/" + title + ".png"
+    graphNames.append(title)
+    return title
+
 def queryOneRow(query):
     cursor=db.cursor()
     cursor.execute(query)
@@ -450,3 +486,37 @@ if args.report:
     table.add_row(["Low CVEs", lastLowCVECount, lowCVECount])
 
     print(table)
+
+if args.graphs:
+    #list of graph names
+    graphNames=[]
+
+    if not args.outdir:
+        print("Error: must supply --outdir with --graphs")
+        quit()
+    if not path.exists(args.outdir):
+        mkdir(args.outdir)
+
+    #get reportID
+    query='SELECT reportID,timestamp FROM reports ORDER BY timestamp DESC LIMIT 1'
+    reportID,timestamp=queryOneRow(query)
+
+    #create Pie Graph of vulns
+    t=(reportID,)
+    sevs=[]
+    sevCount=[]
+    query="select sev, count(sev) from vulns where reportId=? group by sev"
+    cursor=db.cursor()
+    cursor.execute(query,t)
+    results=cursor.fetchall()
+    for row in results:
+        sevs.append(row[0])
+        sevCount.append(row[1])
+
+    createPieGraph(sevs, sevCount, "Severity", "CVEs", "Machines with CVEs of type", timestamp)
+
+if args.slack:
+    from slack_sdk import WebClient
+    from slack_sdk.errors import SlackApiError
+
+    
