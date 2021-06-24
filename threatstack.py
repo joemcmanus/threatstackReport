@@ -9,6 +9,28 @@ import configparser
 import json
 import sqlite3
 import datetime
+import argparse
+from prettytable import PrettyTable
+import plotly
+import plotly.graph_objs as go
+import slack_sdk
+
+
+parser = argparse.ArgumentParser(description='Threatstack Daily Report Generator')
+parser.add_argument('--inventory', help="Generate inventory", action="store_true")
+parser.add_argument('--vulns', help="Generate vulnerability list", action="store_true")
+parser.add_argument('--results', help="Generate results", action="store_true")
+parser.add_argument('--outdir', help="Output directory for files", action="store")
+parser.add_argument('--slack', help="Post to Slack", action="store_true")
+parser.add_argument('--channel', help="Slack Channel to post to", action="store")
+parser.add_argument('--token', help="Slack bot token, or use OS_ENVIRON", action="store")
+parser.add_argument('--graphs', help="Display graphs where available", action="store_true")
+
+args=parser.parse_args()
+
+if len(sys.argv) == 1: 
+    parser.print_help()
+    sys.exit()
 
 
 
@@ -182,6 +204,125 @@ def getAgents(credentials, tsHost, tsOrdID, reportID, token=None):
         print("Unexpected error:", sys.exc_info()[0])
         raise
 
+
+def getVulns(credentials, tsHost, tsOrgID, agentId, instanceId, hostname, tags, token=None):
+    if token == None:
+        URI_PATH = '/v2/vulnerabilities?agentId=' + agentId + "&hasSecurityNotices=true"
+    else:
+        URI_PATH = '/v2/vulnerabilities?agentId=' + agentId + "&hasSecurityNotices=true&token=" + token
+        
+    URL = tsHost + URI_PATH
+
+    content_type = 'application/json'
+    METHOD = 'GET'
+
+    try:
+        sender = Sender(credentials, 
+                        URL, 
+                        METHOD, 
+                        always_hash_content=False,
+                        ext=tsOrgID)
+    except:
+        print("Unexpected error:", sys.exc_info()[0])
+    
+    try:
+        response = requests.get(URL,
+                                headers={'Authorization': sender.request_header,
+                                         'Content-Type': content_type})
+
+        ret_code = response.status_code
+        if isinstance(ret_code,int): 
+            if (ret_code == 429):
+                print("Returned 429, Waiting 64 seconds to continue")
+                time.sleep(90)
+            if ret_code == 200:
+                # Success
+                pass
+            elif ret_code == 400:
+                # Internal server error
+                pass
+            elif ret_code == 500:
+                try:
+                    sender = Sender(credentials,
+                                    URL,
+                                    METHOD,
+                                    always_hash_content=False,
+                                    ext=tsOrgID)
+                except:
+                    print("Unexpected error:", sys.exc_info()[0])
+
+                try:
+                    response = requests.get(URL,
+                                            headers={'Authorization': sender.request_header,
+                                                     'Content-Type': content_type})
+
+                    ret_code = response.status_code
+                except:
+                    # Internal server error
+                    pass
+            else:
+                print(response.status_code, response.text)
+        else:
+            print("Status code received is not an integer.")
+            raise Exception("Status code received", ret_code, "is not an integer.")
+        
+        if is_json(response.text) == True:
+            json_object = json.loads(response.text)
+            if isinstance(json_object, dict):
+                if 'cves' in json_object:
+                    if isinstance(json_object['cves'],list):
+                        cves = json_object['cves']
+                        print("Returned",len(cves),"cves")
+
+                        if len(cves) >= 1:
+                                cves_list = []
+                                for cve in cves:
+                                    temp_cve = {}
+                                    temp_cve['agentId'] = agentId
+                                    temp_cve['instanceId'] = instanceId
+                                    temp_cve['hostname'] = hostname
+                                    temp_cve['tags'] = tags
+                                    for key, val in cve.items():
+                                        if key == 'cveNumber':
+                                            temp_cve[key] = val
+                                        elif key == 'reportedPackage':
+                                            temp_cve[key] = val
+                                        elif key == 'systemPackage':
+                                            temp_cve[key] = val
+                                        elif key == 'vectorType':
+                                            temp_cve[key] = val
+                                        elif key == 'severity':
+                                            temp_cve[key] = val
+                                        elif key == 'isSuppressed':
+                                            temp_cve[key] = val
+                                        else:
+                                            pass
+                                    if len(temp_cve) >= 1:
+                                        cves_list.append(temp_cve)
+                                        t=(reportID, temp_cve['hostname'], temp_cve['cveNumber'], temp_cve['severity'], temp_cve['reportedPackage'])
+                                        query="INSERT into vulns(reportID, host, cve, sev, package) values(?,?,?,?,?)"
+                                        cursor.execute(query, t)
+                                        db.commit()
+
+                            
+                if 'token' in json_object:
+                    if json_object['token'] != None:
+                        print("Found pagination token.")
+                        paginationToken = json_object['token']
+
+                        getVulns(credentials, BASE_PATH, ORGANIZATION_ID, OUTPUT_FILE, agentId, instanceId, hostname, tags, token=paginationToken)
+            else:
+                print("Unexpected data structure.  Expected dictionary")
+                print(json_object)
+                
+    except TypeError as e:
+        print ("Type Error:", e)
+    except ValueError as e:
+        print ("Value Error:", e)
+    except:
+        print("Unexpected error:", sys.exc_info()[0])
+        raise
+
 def queryOneRow(query):
     cursor=db.cursor()
     cursor.execute(query)
@@ -218,15 +359,46 @@ if not path.exists(dbFile):
 
     query="""CREATE TABLE vulns (reportID INTEGER,
         cve TEXT,
+        sev TEXT,
         host TEXT,
+        package TEXT,
         FOREIGN KEY(reportID) REFERENCES reports(reportID)
         )"""
     queryOneRow(query)
 
-#Create and return the ID of the report, PK and FK for rest of DB.
-query='insert into reports(timestamp) values(datetime())'
-queryOneRow(query)
-query='SELECT reportID,timestamp FROM reports ORDER BY timestamp DESC LIMIT 1'
-reportID,timestamp=queryOneRow(query)
 
-getAgents(tsCredentials, tsHost, tsOrgID, reportID)
+if args.inventory:
+    query='insert into reports(timestamp) values(datetime())'
+    queryOneRow(query)
+    query='SELECT reportID,timestamp FROM reports ORDER BY timestamp DESC LIMIT 1'
+    reportID,timestamp=queryOneRow(query)
+    getAgents(tsCredentials, tsHost, tsOrgID, reportID)
+
+if args.vulns: 
+    query='SELECT reportID,timestamp FROM reports ORDER BY timestamp DESC LIMIT 1'
+    reportID,timestamp=queryOneRow(query)
+
+    t=(reportID,)
+    query="select agentID, instanceID, name, tags from hosts where reportID=?"
+    cursor=db.cursor()
+    cursor.execute(query, t)
+    result=cursor.fetchall()
+
+    for row in result:
+        agentId = row[0]
+        instanceId = row[1]
+        hostname = row[2]
+        tags = row[3]
+        getVulns(tsCredentials, tsHost, tsOrgID, agentId, instanceId, hostname, tags)
+               
+
+if args.results:
+    #select previous reportID
+    query='SELECT reportID,timestamp FROM reports ORDER BY timestamp DESC LIMIT 1,1'
+    lastReportID,lastTimestamp=queryOneRow(query)
+
+    query='SELECT reportID,timestamp FROM reports ORDER BY timestamp DESC LIMIT 1'
+    reportID,timestamp=queryOneRow(query)
+
+    #Create the table
+    table=PrettyTable(["", lastTimestamp, timestamp])
