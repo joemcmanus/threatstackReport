@@ -13,13 +13,12 @@ import argparse
 from prettytable import PrettyTable
 import plotly
 import plotly.graph_objs as go
-import slack_sdk
 
 
 parser = argparse.ArgumentParser(description='Threatstack Daily Report Generator')
 parser.add_argument('--inventory', help="Generate inventory", action="store_true")
 parser.add_argument('--vulns', help="Generate vulnerability list", action="store_true")
-parser.add_argument('--results', help="Generate results", action="store_true")
+parser.add_argument('--report', help="Generate report", action="store_true")
 parser.add_argument('--outdir', help="Output directory for files", action="store")
 parser.add_argument('--slack', help="Post to Slack", action="store_true")
 parser.add_argument('--channel', help="Slack Channel to post to", action="store")
@@ -33,6 +32,16 @@ if len(sys.argv) == 1:
     sys.exit()
 
 
+#print what we are doing
+table= PrettyTable(["Option", "Value"])
+table.add_row(["Get new inventory", args.inventory])
+table.add_row(["Get new vulnerability list", args.inventory])
+table.add_row(["Print report", args.report])
+table.add_row(["Post to Slack", args.slack])
+table.add_row(["Slack channel", args.channel])
+table.add_row(["Create Graphs", args.graphs])
+table.add_row(["Output Dir", args.outdir])
+print(table)
 
 config=configparser.ConfigParser()
 configFile = 'threatstack.cfg'
@@ -392,7 +401,7 @@ if args.vulns:
         getVulns(tsCredentials, tsHost, tsOrgID, agentId, instanceId, hostname, tags)
                
 
-if args.results:
+if args.report:
     #select previous reportID
     query='SELECT reportID,timestamp FROM reports ORDER BY timestamp DESC LIMIT 1,1'
     lastReportID,lastTimestamp=queryOneRow(query)
