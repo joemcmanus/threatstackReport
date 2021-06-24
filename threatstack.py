@@ -345,7 +345,7 @@ def createGraph(yData, xData, yTitle, xTitle, title):
 
 def createPieGraph(xData, yData, xTitle, yTitle, title, timestamp): 
     plotly.io.write_image({
-        "data":[ go.Pie( labels=xData, values=yData, title=title + " " + timestamp]},makeFilename(title))
+        "data":[ go.Pie( labels=xData, values=yData, title=title + " " + timestamp)]},makeFilename(title))
 
 def makeFilename(title):
     #first remove spaces
@@ -519,4 +519,38 @@ if args.slack:
     from slack_sdk import WebClient
     from slack_sdk.errors import SlackApiError
 
-    
+    try:
+        slackClientToken=os.environ['SLACK_BOT_TOKEN']
+    except:
+        if not args.token:
+            print("ERROR: Unable to find SLACK_BOT_TOKEN")
+            quit()
+        else:
+            slackClientToken=args.token
+
+    if not args.channel:
+        print("Error: You must supply --channel with --slack")
+        quit()
+
+    if not os.path.exists(args.outdir):
+        os.makedir(args.outdir)
+
+    channelID=args.channel
+
+    client = WebClient(token=slackClientToken)
+
+    try:
+        response = client.chat_postMessage(channel=channelID, text="```" + str(table) + " ```")
+    except SlackApiError as e:
+        # You will get a SlackApiError if "ok" is False
+        assert e.response["ok"] is False
+        assert e.response["error"]  
+        print(f"Error: {e.response['error']}")
+
+    for graphName in graphNames:
+        try:
+            response = client.files_upload(channels=channelID, file=graphName)
+        except SlackApiError as e:
+            assert e.response["ok"] is False
+            assert e.response["error"] 
+            print(f"Error: {e.response['error']}") 
