@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+#File - threatstack.py | A script to use the Threatstack API to get reports and post to slack
+#Author - Joe McManus josephmc@alumni.cmu.edu
+#Version - 0.1 2021/06/25
+#Notes - This is just a wrapper for code provided by Threatstack 
+
 
 from mohawk import Sender
 import requests
@@ -565,11 +570,18 @@ if args.slack:
 
     client = WebClient(token=slackClientToken)
 
+    #select previous reportID
+    query='SELECT reportID, STRFTIME("%Y/%m/%d %H:%M", timestamp) FROM reports ORDER BY timestamp DESC LIMIT 1,1'
+    lastReportID,lastTimestamp=queryOneRow(query)
+
+    query='SELECT reportID, STRFTIME("%Y/%m/%d %H:%M", timestamp) FROM reports ORDER BY timestamp DESC LIMIT 1'
+    reportID,timestamp=queryOneRow(query)
+
     try:
 
         response = client.chat_postMessage(channel=channelID, text="```" + str(cveCountTable(reportID, lastReportID, timestamp, lastTimestamp)) + " ```")
         response = client.chat_postMessage(channel=channelID, text="```" + str(cveDetailTable(reportID)) + " ```")
-        response = client.chat_postMessage(channel=channelID, text="```" + str(cveDetailHost(reportID)) + " ```")
+        response = client.chat_postMessage(channel=channelID, text="```" + str(cveHostTable(reportID)) + " ```")
     except SlackApiError as e:
         # You will get a SlackApiError if "ok" is False
         assert e.response["ok"] is False
