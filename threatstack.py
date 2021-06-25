@@ -376,6 +376,55 @@ def queryAllRows(query):
     result=cursor.fetchall()
     return(result)
     
+def queryAllRowsVar(query,var):
+    cursor=db.cursor()
+    t=(var,)
+    cursor.execute(query,t)
+    result=cursor.fetchall()
+    return(result)
+    
+def cveCountTable(reportID, lastReportID, timestamp, lastTimestamp):
+    #Create the table
+    table=PrettyTable(["", lastTimestamp, timestamp])
+
+    #Get current list of high vulns and then yesterdays
+    query="SELECT COUNT(DISTINCT(cve)) FROM vulns WHERE reportID=? and sev='high'"
+    lastHighCVECount=queryOneRowVar(query, lastReportID)[0]
+
+    query="SELECT COUNT(DISTINCT(cve)) FROM vulns WHERE reportID=? and sev='high'"
+    highCVECount=queryOneRowVar(query, reportID)[0]
+
+    #Get current list of medium vulns and then yesterdays
+    query="SELECT COUNT(DISTINCT(cve)) FROM vulns WHERE reportID=? and sev='medium'"
+    lastMediumCVECount=queryOneRowVar(query, lastReportID)[0]
+
+    query="SELECT COUNT(DISTINCT(cve)) FROM vulns WHERE reportID=? and sev='medium'"
+    mediumCVECount=queryOneRowVar(query, reportID)[0]
+
+    #Get current list of low vulns and then yesterdays
+    query="SELECT COUNT(DISTINCT(cve)) FROM vulns WHERE reportID=? and sev='low'"
+    lastLowCVECount=queryOneRowVar(query, lastReportID)[0]
+
+    query="SELECT COUNT(DISTINCT(cve)) FROM vulns WHERE reportID=? and sev='low'"
+    lowCVECount=queryOneRowVar(query, reportID)[0]
+
+    table.add_row(["High CVEs", lastHighCVECount, highCVECount])
+    table.add_row(["Medium CVEs", lastMediumCVECount, mediumCVECount])
+    table.add_row(["Low CVEs", lastLowCVECount, lowCVECount])
+    #print(table.get_string(title="Vulnerabilties Report"))
+    return(table)
+
+def cveDetailTable(reportID):
+    #get list of Which CVEs and Vuln level
+    table=PrettyTable(["CVE", "Severity", "Package"])
+
+    query="select distinct(cve), sev, package from vulns where reportID=?"
+    result=queryAllRowsVar(query, reportID)
+    for cve, sev, package in result:
+        table.add_row([cve, sev, package])
+
+    return(table)
+
 if path.exists(dbFile):
     print("DB File Found")
     db = sqlite3.connect(dbFile)
@@ -440,41 +489,15 @@ if args.vulns:
 
 if args.report:
     #select previous reportID
-    query='SELECT reportID,timestamp FROM reports ORDER BY timestamp DESC LIMIT 1,1'
+    query='SELECT reportID, STRFTIME("%Y/%m/%d %H:%M", timestamp) FROM reports ORDER BY timestamp DESC LIMIT 1,1'
     lastReportID,lastTimestamp=queryOneRow(query)
 
-    query='SELECT reportID,timestamp FROM reports ORDER BY timestamp DESC LIMIT 1'
+    query='SELECT reportID, STRFTIME("%Y/%m/%d %H:%M", timestamp) FROM reports ORDER BY timestamp DESC LIMIT 1'
     reportID,timestamp=queryOneRow(query)
 
-    #Create the table
-    table=PrettyTable(["", lastTimestamp, timestamp])
+    print(cveCountTable(reportID, lastReportID, timestamp, lastTimestamp))
 
-    #Get current list of high vulns and then yesterdays
-    query="SELECT COUNT(DISTINCT(cve)) FROM vulns WHERE reportID=? and sev='high'"
-    lastHighCVECount=queryOneRowVar(query, lastReportID)[0]
-
-    query="SELECT COUNT(DISTINCT(cve)) FROM vulns WHERE reportID=? and sev='high'"
-    highCVECount=queryOneRowVar(query, lastReportID)[0]
-
-    #Get current list of medium vulns and then yesterdays
-    query="SELECT COUNT(DISTINCT(cve)) FROM vulns WHERE reportID=? and sev='medium'"
-    lastMediumCVECount=queryOneRowVar(query, lastReportID)[0]
-
-    query="SELECT COUNT(DISTINCT(cve)) FROM vulns WHERE reportID=? and sev='medium'"
-    mediumCVECount=queryOneRowVar(query, lastReportID)[0]
-
-    #Get current list of low vulns and then yesterdays
-    query="SELECT COUNT(DISTINCT(cve)) FROM vulns WHERE reportID=? and sev='low'"
-    lastLowCVECount=queryOneRowVar(query, lastReportID)[0]
-
-    query="SELECT COUNT(DISTINCT(cve)) FROM vulns WHERE reportID=? and sev='low'"
-    lowCVECount=queryOneRowVar(query, lastReportID)[0]
-
-    table.add_row(["High CVEs", lastHighCVECount, highCVECount])
-    table.add_row(["Medium CVEs", lastMediumCVECount, mediumCVECount])
-    table.add_row(["Low CVEs", lastLowCVECount, lowCVECount])
-
-    print(table)
+    print(cveDetailTable(reportID))
 
 if args.graphs:
     #list of graph names
@@ -504,7 +527,8 @@ if args.graphs:
 
     createPieGraph(sevs, sevCount, "Severity", "CVEs", "Machines with CVEs of type", timestamp)
     graphNames.append(makeFilename("Machines with CVEs of type"))
-    print(graphNames)
+
+
 
 if args.slack:
     from slack_sdk import WebClient
