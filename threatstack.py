@@ -425,6 +425,17 @@ def cveDetailTable(reportID):
 
     return(table)
 
+def cveHostTable(reportID):
+    #get list of cves and the host they affect
+    table=PrettyTable(["CVE", "Severity", "Hosts"])
+
+    query="select cve, sev, group_concat(host,char(10)) from vulns where reportID=? group by(cve)"
+    result=queryAllRowsVar(query, reportID)
+    for cve, sev, package in result:
+        table.add_row([cve, sev, package])
+
+    return(table)
+
 if path.exists(dbFile):
     print("DB File Found")
     db = sqlite3.connect(dbFile)
@@ -496,8 +507,8 @@ if args.report:
     reportID,timestamp=queryOneRow(query)
 
     print(cveCountTable(reportID, lastReportID, timestamp, lastTimestamp))
-
     print(cveDetailTable(reportID))
+    print(cveHostTable(reportID))
 
 if args.graphs:
     #list of graph names
@@ -510,7 +521,7 @@ if args.graphs:
         mkdir(args.outdir)
 
     #get reportID
-    query='SELECT reportID,timestamp FROM reports ORDER BY timestamp DESC LIMIT 1'
+    query='SELECT reportID,  STRFTIME("%Y/%m/%d %H:%M",timestamp) FROM reports ORDER BY timestamp DESC LIMIT 1'
     reportID,timestamp=queryOneRow(query)
 
     #create Pie Graph of vulns
@@ -555,7 +566,10 @@ if args.slack:
     client = WebClient(token=slackClientToken)
 
     try:
-        response = client.chat_postMessage(channel=channelID, text="```" + str(table) + " ```")
+
+        response = client.chat_postMessage(channel=channelID, text="```" + str(cveCountTable(reportID, lastReportID, timestamp, lastTimestamp)) + " ```")
+        response = client.chat_postMessage(channel=channelID, text="```" + str(cveDetailTable(reportID)) + " ```")
+        response = client.chat_postMessage(channel=channelID, text="```" + str(cveDetailHost(reportID)) + " ```")
     except SlackApiError as e:
         # You will get a SlackApiError if "ok" is False
         assert e.response["ok"] is False
