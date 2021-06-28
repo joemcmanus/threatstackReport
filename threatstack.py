@@ -20,6 +20,8 @@ import argparse
 from prettytable import PrettyTable
 import plotly
 import plotly.graph_objs as go
+import plotly.express as px
+import pandas as pd
 
 
 
@@ -353,6 +355,18 @@ def createPieGraph(xData, yData, xTitle, yTitle, title, timestamp):
     plotly.io.write_image({
         "data":[ go.Pie( labels=xData, values=yData, title=title + " " + timestamp)]},makeFilename(title))
 
+def createStackedBar():
+    cursor=db.cursor()
+    df=pd.read_sql("select distinct(a.sev) as Severity, COUNT(DISTINCT(a.cve)) as Count, b.timestamp as date  from vulns a, reports b where a.reportID=b.reportID group by b.reportID, a.cve limit 10 ", db)
+    title="Unique CVE"
+    fig=px.bar(df, x="date", y="Count", color="Severity",title=title, color_discrete_sequence=px.colors.qualitative.D3)
+    fig.write_image(makeFilename(title))
+
+    df=pd.read_sql("select distinct(a.sev) as Severity, COUNT(a.cve) as 'Machine Count',  b.timestamp as date  from vulns a, reports b where a.reportID=b.reportID group by b.reportID, a.cve", db)
+    title="Hosts with CVEs"
+    fig=px.line(df, x="date", y="Machine Count", color="Severity",title=title, color_discrete_sequence=px.colors.qualitative.D3)
+    fig.write_image(makeFilename(title))
+
 def makeFilename(title):
     #first remove spaces
     title=title.replace(" ","-")
@@ -418,6 +432,7 @@ def cveCountTable(reportID, lastReportID, timestamp, lastTimestamp):
     table.add_row(["Low CVEs", lastLowCVECount, lowCVECount])
     #print(table.get_string(title="Vulnerabilties Report"))
     return(table)
+
 
 def cveDetailTable(reportID):
     #get list of Which CVEs and Vuln level
@@ -544,6 +559,7 @@ if args.graphs:
     createPieGraph(sevs, sevCount, "Severity", "CVEs", "Machines with CVEs of type", timestamp)
     graphNames.append(makeFilename("Machines with CVEs of type"))
 
+    createStackedBar()
 
 
 if args.slack:
