@@ -357,9 +357,10 @@ def createPieGraph(xData, yData, xTitle, yTitle, title, timestamp):
 
 def createStackedBar():
     cursor=db.cursor()
-    df=pd.read_sql("select distinct(a.sev) as Severity, COUNT(DISTINCT(a.cve)) as Count, b.timestamp as date  from vulns a, reports b where a.reportID=b.reportID group by b.reportID, a.cve limit 10 ", db)
+    df=pd.read_sql("select distinct(a.sev) as Severity, COUNT(DISTINCT(a.cve)) as Count, b.timestamp as date  from vulns a, reports b where a.reportID=b.reportID group by b.reportID, a.cve order by b.timestamp desc limit 20 ", db)
     title="Unique CVE"
     fig=px.bar(df, x="date", y="Count", color="Severity",title=title, color_discrete_sequence=px.colors.qualitative.D3)
+    fig.update_layout(xaxis_type='category')
     fig.write_image(makeFilename(title))
 
     df=pd.read_sql("select distinct(a.sev) as Severity, COUNT(a.cve) as 'Machine Count',  b.timestamp as date  from vulns a, reports b where a.reportID=b.reportID group by b.reportID, a.cve", db)
@@ -558,6 +559,8 @@ if args.graphs:
 
     createPieGraph(sevs, sevCount, "Severity", "CVEs", "Machines with CVEs of type", timestamp)
     graphNames.append(makeFilename("Machines with CVEs of type"))
+    graphNames.append(makeFilename("Hosts with CVEs"))
+    graphNames.append(makeFilename("Unique CVE"))
 
     createStackedBar()
 
