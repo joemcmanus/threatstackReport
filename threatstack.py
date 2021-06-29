@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 #File - threatstack.py | A script to use the Threatstack API to get reports and post to slack
 #Author - Joe McManus josephmc@alumni.cmu.edu
-#Version - 0.1 2021/06/25
+#Version - 0.2 2021/06/29
 #Notes - This is just a wrapper for code provided by Threatstack 
 
 
@@ -28,6 +28,7 @@ import pandas as pd
 parser = argparse.ArgumentParser(description='Threatstack Daily Report Generator')
 parser.add_argument('--inventory', help="Generate inventory", action="store_true")
 parser.add_argument('--vulns', help="Generate vulnerability list", action="store_true")
+parser.add_argument('--alerts', help="Generate alert list", action="store_true")
 parser.add_argument('--report', help="Generate report", action="store_true")
 parser.add_argument('--outdir', help="Output directory for files", action="store")
 parser.add_argument('--slack', help="Post to Slack", action="store_true")
@@ -202,9 +203,6 @@ def getAgents(credentials, tsHost, tsOrdID, reportID, token=None):
                                     cursor.execute(query, t)
                                     db.commit()
 
-                        else:
-                            print("Why?")
-                            
                 if 'token' in json_object:
                     if json_object['token'] != None:
                         print("Found pagination token.")
@@ -342,6 +340,93 @@ def getVulns(credentials, tsHost, tsOrgID, agentId, instanceId, hostname, tags, 
         print("Unexpected error:", sys.exc_info()[0])
         raise
 
+
+def getAlerts(credentials, tsHost, tsOrgID, reportID):
+    today=today = datetime.date.today()
+    yesterday=today-datetime.timedelta(days=1)
+
+    URI_PATH = '/v2/alerts/severity-counts?from=' + str(yesterday) + "&until=" + str(today) 
+    URL = tsHost + URI_PATH
+
+    content_type = 'application/json'
+    METHOD = 'GET'
+
+    try:
+        sender = Sender(credentials, 
+                        URL, 
+                        METHOD, 
+                        always_hash_content=False,
+                        ext=tsOrgID)
+    except:
+        print("Unexpected error:", sys.exc_info()[0])
+    
+    try:
+        response = requests.get(URL,
+                                headers={'Authorization': sender.request_header,
+                                         'Content-Type': content_type})
+
+        ret_code = response.status_code
+        if isinstance(ret_code,int): 
+            if (ret_code == 429):
+                print("Returned 429, Waiting 64 seconds to continue")
+                time.sleep(90)
+            if ret_code == 200:
+                # Success
+                pass
+            elif ret_code == 400:
+                # Internal server error
+                pass
+            elif ret_code == 500:
+                try:
+                    sender = Sender(credentials,
+                                    URL,
+                                    METHOD,
+                                    always_hash_content=False,
+                                    ext=tsOrgID)
+                except:
+                    print("Unexpected error:", sys.exc_info()[0])
+
+                try:
+                    response = requests.get(URL,
+                                            headers={'Authorization': sender.request_header,
+                                                     'Content-Type': content_type})
+
+                    ret_code = response.status_code
+                except:
+                    # Internal server error
+                    pass
+            else:
+                print(response.status_code, response.text)
+        else:
+            print("Status code received is not an integer.")
+            raise Exception("Status code received", ret_code, "is not an integer.")
+        
+        if is_json(response.text) == True:
+            json_object = json.loads(response.text)
+            if isinstance(json_object, dict):
+                if 'severityCounts' in json_object:
+                    if isinstance(json_object['severityCounts'],list):
+                        severityCounts = json_object['severityCounts']
+                        if len(severityCounts) >= 1:
+                            for severity in severityCounts:
+                                        cursor=db.cursor()
+                                        t=(reportID, severity['severity'], severity['count'],)
+                                        query="INSERT into alerts(reportID, sev, sevCount) values(?,?,?)"
+                                        cursor.execute(query, t)
+                                        db.commit()
+
+            else:
+                print("Unexpected data structure.  Expected dictionary")
+                print(json_object)
+                
+    except TypeError as e:
+        print ("Type Error:", e)
+    except ValueError as e:
+        print ("Value Error:", e)
+    except:
+        print("Unexpected error:", sys.exc_info()[0])
+        raise
+
 def createGraph(yData, xData, yTitle, xTitle, title):
     plotly.io.write_image({
         "data":[ go.Bar( x=xData, y=yData) ],
@@ -367,6 +452,13 @@ def createStackedBar():
     title="Hosts with CVEs"
     fig=px.line(df, x="date", y="Machine Count", color="Severity",title=title, color_discrete_sequence=px.colors.qualitative.D3)
     fig.write_image(makeFilename(title))
+
+    df=pd.read_sql("select a.sev as Severity, a.sevCount as Count, b.timestamp as date from alerts a, reports b where a.reportID=b.reportID and sev <=2 limit 60", db)
+    title="Alerts over Time"
+    fig=px.line(df, x="date", y="Count", color="Severity",title=title, color_discrete_sequence=px.colors.qualitative.D3)
+    fig.update_layout(xaxis_type='category')
+    fig.write_image(makeFilename(title))
+
 
 def makeFilename(title):
     #first remove spaces
@@ -434,6 +526,16 @@ def cveCountTable(reportID, lastReportID, timestamp, lastTimestamp):
     #print(table.get_string(title="Vulnerabilties Report"))
     return(table)
 
+def alertTable(reportID):
+    query="select a.sev, a.sevCount, b.timestamp from alerts a, reports b where a.reportID=b.reportID and sev <=2 and a.reportID=?"
+    alertResult=queryAllRowsVar(query, reportID)
+
+    #Create the table
+    table=PrettyTable(["Severity", "Count"])
+    for sev, sevCount, timestamp in alertResult:
+        table.add_row([sev, sevCount])
+    return(table)
+    
 
 def cveDetailTable(reportID):
     #get list of Which CVEs and Vuln level
@@ -493,6 +595,12 @@ if not path.exists(dbFile):
         )"""
     queryOneRow(query)
 
+    query="""CREATE TABLE alerts(reportID INTEGER,
+        sev INTEGER,
+        sevCount INTEGER,
+        FOREIGN KEY(reportID) REFERENCES reports(reportID)
+        )"""
+    queryOneRow(query)
 
 if args.inventory:
     query='insert into reports(timestamp) values(datetime())'
@@ -519,6 +627,11 @@ if args.vulns:
         getVulns(tsCredentials, tsHost, tsOrgID, agentId, instanceId, hostname, tags)
                
 
+if args.alerts:
+    query='SELECT reportID,timestamp FROM reports ORDER BY timestamp DESC LIMIT 1'
+    reportID,timestamp=queryOneRow(query)
+    getAlerts(tsCredentials, tsHost, tsOrgID, reportID)
+
 if args.report:
     #select previous reportID
     query='SELECT reportID, STRFTIME("%Y/%m/%d %H:%M", timestamp) FROM reports ORDER BY timestamp DESC LIMIT 1,1'
@@ -530,6 +643,7 @@ if args.report:
     print(cveCountTable(reportID, lastReportID, timestamp, lastTimestamp))
     print(cveDetailTable(reportID))
     print(cveHostTable(reportID))
+    print(alertTable(reportID))
 
 if args.graphs:
     #list of graph names
@@ -561,6 +675,7 @@ if args.graphs:
     graphNames.append(makeFilename("Machines with CVEs of type"))
     graphNames.append(makeFilename("Hosts with CVEs"))
     graphNames.append(makeFilename("Unique CVE"))
+    graphNames.append(makeFilename("Alerts over Time"))
 
     createStackedBar()
 
@@ -601,6 +716,7 @@ if args.slack:
         response = client.chat_postMessage(channel=channelID, text="```" + str(cveCountTable(reportID, lastReportID, timestamp, lastTimestamp)) + " ```")
         response = client.chat_postMessage(channel=channelID, text="```" + str(cveDetailTable(reportID)) + " ```")
         response = client.chat_postMessage(channel=channelID, text="```" + str(cveHostTable(reportID)) + " ```")
+        response = client.chat_postMessage(channel=channelID, text="```" + str(alertTable(reportID)) + " ```")
     except SlackApiError as e:
         # You will get a SlackApiError if "ok" is False
         assert e.response["ok"] is False
