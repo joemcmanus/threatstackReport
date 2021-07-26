@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 #File - threatstack.py | A script to use the Threatstack API to get reports and post to slack
 #Author - Joe McManus josephmc@alumni.cmu.edu
-#Version - 0.2 2021/06/29
+#Version - 0.3 2021/07/25
 #Notes - This is just a wrapper for code provided by Threatstack 
 
 
@@ -453,7 +453,7 @@ def createStackedBar():
     fig=px.line(df, x="date", y="Machine Count", color="Severity",title=title, color_discrete_sequence=px.colors.qualitative.D3)
     fig.write_image(makeFilename(title))
 
-    df=pd.read_sql("select a.sev as Severity, a.sevCount as Count, b.timestamp as date from alerts a, reports b where a.reportID=b.reportID and sev <=2 limit 60", db)
+    df=pd.read_sql("select a.sev as Severity, a.sevCount as Count, b.timestamp as date from alerts a, reports b where a.reportID=b.reportID and sev <=2 and date >= date('now', '-14 days')", db)
     title="Alerts over Time"
     fig=px.line(df, x="date", y="Count", color="Severity",title=title, color_discrete_sequence=px.colors.qualitative.D3)
     fig.update_layout(xaxis_type='category')
