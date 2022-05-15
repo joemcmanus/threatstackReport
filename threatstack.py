@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 #File - threatstack.py | A script to use the Threatstack API to get reports and post to slack
-#Author - Joe McManus josephmc@alumni.cmu.edu
-#Version - 0.3 2021/07/25
+#Author - Joe McManus joe.mcmanus@drizly.com
+#Version - 0.3 2022/05/09
 #Notes - This is just a wrapper for code provided by Threatstack 
 
 
@@ -35,6 +35,8 @@ parser.add_argument('--slack', help="Post to Slack", action="store_true")
 parser.add_argument('--channel', help="Slack Channel to post to", action="store")
 parser.add_argument('--token', help="Slack bot token, or use OS_ENVIRON", action="store")
 parser.add_argument('--graphs', help="Display graphs where available", action="store_true")
+parser.add_argument('--textgraphs', help="Display text graphs where available", action="store_true")
+parser.add_argument('--skip', help="Skip printing the options table", action="store_true")
 
 args=parser.parse_args()
 
@@ -43,17 +45,18 @@ if len(sys.argv) == 1:
     sys.exit()
 
 
-#print what we are doing
-table= PrettyTable(["Option", "Value"])
-table.add_row(["Get new inventory", args.inventory])
-table.add_row(["Get new vulnerability list", args.inventory])
-table.add_row(["Print report", args.report])
-table.add_row(["Post to Slack", args.slack])
-table.add_row(["Slack channel", args.channel])
-table.add_row(["Create Graphs", args.graphs])
-table.add_row(["Output Dir", args.outdir])
-print(table)
-
+if not args.skip:
+    #print what we are doing
+    table= PrettyTable(["Option", "Value"])
+    table.add_row(["Get new inventory", args.inventory])
+    table.add_row(["Get new vulnerability list", args.inventory])
+    table.add_row(["Print report", args.report])
+    table.add_row(["Post to Slack", args.slack])
+    table.add_row(["Slack channel", args.channel])
+    table.add_row(["Create Graphs", args.graphs])
+    table.add_row(["Output Dir", args.outdir])
+    print(table)
+    
 config=configparser.ConfigParser()
 configFile = 'threatstack.cfg'
 if not path.exists(configFile):
@@ -560,7 +563,8 @@ def cveHostTable(reportID):
     return(table)
 
 if path.exists(dbFile):
-    print("DB File Found")
+    if not args.skip:
+        print("DB File Found")
     db = sqlite3.connect(dbFile)
     db.row_factory = sqlite3.Row 
 if not path.exists(dbFile):
@@ -678,6 +682,30 @@ if args.graphs:
     graphNames.append(makeFilename("Alerts over Time"))
 
     createStackedBar()
+
+if args.textgraphs:
+    import plotext as plt
+    #get reportID
+    query='SELECT reportID,  STRFTIME("%Y/%m/%d %H:%M",timestamp) FROM reports ORDER BY timestamp DESC LIMIT 1'
+    reportID,timestamp=queryOneRow(query)
+
+    #create Pie Graph of vulns
+    t=(reportID,)
+    sevs=[]
+    sevCount=[]
+    query="select sev, count(sev) from vulns where reportId=? group by sev"
+    cursor=db.cursor()
+    cursor.execute(query,t)
+    results=cursor.fetchall()
+    for row in results:
+        sevs.append(row[0])
+        sevCount.append(row[1])
+
+    plt.bar(sevs, sevCount, orientation = "h", width = 0.3, marker = 'fhd')
+    plt.title("Threatstack CVEs")
+    plt.clc() #clear colors
+    plt.plotsize(100, (2 *len(sevs) -1) + 4) # (1 for x numerical ticks + 2 for x axes + 1 for title)
+    plt.show()
 
 
 if args.slack:
